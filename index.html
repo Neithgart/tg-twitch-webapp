@@ -3,11 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Twitch in Telegram</title>
+    <title>Media Control</title>
     <style>
       html, body {
         margin:0; padding:0; height:100%; background:#0e0e10; color:#fff;
         font-family: Arial, sans-serif;
+      }
+      #menu {
+        display:flex; gap:5px; padding:10px; background:#18181b;
+        border-bottom:1px solid #2f2f35;
+      }
+      #menu button {
+        flex:1; padding:8px; border:none; border-radius:5px;
+        background:#2f2f35; color:white; cursor:pointer;
+        font-weight:bold;
+      }
+      #menu button.active { background:#9146ff; }
+      #content > div { display:none; height:calc(100% - 60px); }
+      #twitch-tab, #youtube-tab, #hdrezka-tab {
+        width:100%; background:#0e0e10;
       }
       #header {
         display:flex; gap:10px; padding:10px; background:#18181b;
@@ -17,21 +31,14 @@
         flex:1; padding:8px; border-radius:5px; border:none;
         font-size:14px;
       }
-      #search:focus { outline:2px solid #9146ff; }
       #btn {
         padding:8px 14px; background:#9146ff; border:none; border-radius:5px;
         color:white; cursor:pointer; font-weight:bold;
       }
       #btn:hover { background:#772ce8; }
-      #popular {
-        display:flex; gap:10px; flex-wrap:wrap; padding:10px; background:#18181b;
+      #twitch-embed, #youtube-embed {
+        width:100%; height:calc(100% - 110px); display:none;
       }
-      #popular button {
-        background:#2f2f35; color:white; border:none; border-radius:5px;
-        padding:6px 12px; cursor:pointer; font-size:14px;
-      }
-      #popular button:hover { background:#3f3f46; }
-      #twitch-embed { width:100%; height:calc(100% - 110px); display:none; }
       #placeholder {
         display:flex; align-items:center; justify-content:center;
         height:calc(100% - 110px); font-size:18px; color:#aaa;
@@ -40,33 +47,60 @@
     <script src="https://player.twitch.tv/js/embed/v1.js"></script>
   </head>
   <body>
-    <div id="header">
-      <input id="search" type="text" placeholder="Введите канал..." onkeypress="if(event.key==='Enter'){loadChannel()}"/>
-      <button id="btn" onclick="loadChannel()">Найти</button>
+    <div id="menu">
+      <button id="btn-twitch" onclick="showTab('twitch')">🎮 Twitch</button>
+      <button id="btn-youtube" onclick="showTab('youtube')">▶️ YouTube</button>
+      <button id="btn-hdrezka" onclick="showTab('hdrezka')">🎬 HdRezka</button>
     </div>
 
-    <div id="popular">
-      <button onclick="setChannel('riotgames')">RiotGames</button>
-      <button onclick="setChannel('esl_csgo')">ESL_CSGO</button>
-      <button onclick="setChannel('xqc')">xQc</button>
-      <button onclick="setChannel('pokimane')">Pokimane</button>
-      <button onclick="setChannel('shroud')">Shroud</button>
-    </div>
+    <div id="content">
+      <!-- Twitch Tab -->
+      <div id="twitch-tab">
+        <div id="header">
+          <input id="search-twitch" type="text" placeholder="Введите канал..." onkeypress="if(event.key==='Enter'){loadTwitch()}"/>
+          <button id="btn" onclick="loadTwitch()">Найти</button>
+        </div>
+        <div id="placeholder-twitch">Введите название Twitch-канала 👆</div>
+        <div id="twitch-embed"></div>
+      </div>
 
-    <div id="placeholder">Введите название канала, чтобы начать 👆</div>
-    <div id="twitch-embed"></div>
+      <!-- YouTube Tab -->
+      <div id="youtube-tab">
+        <div id="header">
+          <input id="search-youtube" type="text" placeholder="Введите ID видео или ссылку..." onkeypress="if(event.key==='Enter'){loadYoutube()}"/>
+          <button id="btn" onclick="loadYoutube()">Найти</button>
+        </div>
+        <div id="placeholder-youtube">Введите ссылку или ID YouTube-видео 👆</div>
+        <div id="youtube-embed"></div>
+      </div>
+
+      <!-- HdRezka Tab (заготовка) -->
+      <div id="hdrezka-tab">
+        <div id="placeholder">В разработке: вход в HdRezka 🎬</div>
+      </div>
+    </div>
 
     <script>
-      let player = null;
+      let twitchPlayer = null;
+      let ytFrame = null;
 
-      function initPlayer(ch) {
-        document.getElementById("placeholder").style.display = "none";
+      function showTab(tab) {
+        document.querySelectorAll("#menu button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll("#content > div").forEach(d => d.style.display="none");
+        document.getElementById(tab+"-tab").style.display="block";
+        document.getElementById("btn-"+tab).classList.add("active");
+      }
+
+      // Twitch
+      function initTwitch(ch) {
+        localStorage.setItem("lastTwitch", ch);
+        document.getElementById("placeholder-twitch").style.display = "none";
         document.getElementById("twitch-embed").style.display = "block";
 
-        if (player) {
-          player.setChannel(ch);
+        if (twitchPlayer) {
+          twitchPlayer.setChannel(ch);
         } else {
-          player = new Twitch.Embed("twitch-embed", {
+          twitchPlayer = new Twitch.Embed("twitch-embed", {
             channel: ch,
             width: "100%",
             height: "100%",
@@ -74,15 +108,41 @@
           });
         }
       }
-
-      function setChannel(ch) {
-        initPlayer(ch);
+      function loadTwitch() {
+        const ch = document.getElementById("search-twitch").value.trim();
+        if (ch) initTwitch(ch);
       }
 
-      function loadChannel() {
-        const ch = document.getElementById("search").value.trim();
-        if (ch) initPlayer(ch);
+      // YouTube
+      function initYoutube(id) {
+        localStorage.setItem("lastYoutube", id);
+        document.getElementById("placeholder-youtube").style.display = "none";
+        document.getElementById("youtube-embed").style.display = "block";
+        document.getElementById("youtube-embed").innerHTML =
+          `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${id}" 
+            frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen>
+           </iframe>`;
       }
+      function loadYoutube() {
+        let input = document.getElementById("search-youtube").value.trim();
+        if (!input) return;
+        let id = input;
+        if (input.includes("youtube.com") || input.includes("youtu.be")) {
+          const match = input.match(/(?:v=|be\/)([a-zA-Z0-9_-]{11})/);
+          if (match) id = match[1];
+        }
+        initYoutube(id);
+      }
+
+      // Restore last session
+      window.onload = () => {
+        showTab("twitch");
+        const lastTwitch = localStorage.getItem("lastTwitch");
+        if (lastTwitch) initTwitch(lastTwitch);
+
+        const lastYoutube = localStorage.getItem("lastYoutube");
+        if (lastYoutube) initYoutube(lastYoutube);
+      };
     </script>
   </body>
 </html>
