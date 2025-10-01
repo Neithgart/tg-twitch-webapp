@@ -60,11 +60,9 @@
       let player = null;
 
       function initPlayer(ch) {
-        // скрываем заглушку и показываем плеер
         document.getElementById("placeholder").style.display = "none";
         document.getElementById("twitch-embed").style.display = "block";
 
-        // создаём или обновляем плеер
         if (player) {
           player.setChannel(ch);
         } else {
@@ -88,3 +86,4 @@
     </script>
   </body>
 </html>
+
