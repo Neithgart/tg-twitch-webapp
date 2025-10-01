@@ -5,27 +5,74 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Twitch in Telegram</title>
     <style>
-      html, body { margin:0; padding:0; height:100%; background:#000; }
-      #wrap { position:fixed; inset:0; }
-      iframe { width:100%; height:100%; border:0; }
+      html, body {
+        margin:0; padding:0; height:100%; background:#0e0e10; color:#fff;
+        font-family: Arial, sans-serif;
+      }
+      #header {
+        display:flex; gap:10px; padding:10px; background:#18181b;
+        align-items:center; border-bottom:1px solid #2f2f35;
+      }
+      #search {
+        flex:1; padding:8px; border-radius:5px; border:none;
+        font-size:14px;
+      }
+      #search:focus { outline:2px solid #9146ff; }
+      #btn {
+        padding:8px 14px; background:#9146ff; border:none; border-radius:5px;
+        color:white; cursor:pointer; font-weight:bold;
+      }
+      #btn:hover { background:#772ce8; }
+      #popular {
+        display:flex; gap:10px; flex-wrap:wrap; padding:10px; background:#18181b;
+      }
+      #popular button {
+        background:#2f2f35; color:white; border:none; border-radius:5px;
+        padding:6px 12px; cursor:pointer; font-size:14px;
+      }
+      #popular button:hover { background:#3f3f46; }
+      #twitch-embed { width:100%; height:calc(100% - 110px); }
     </style>
     <script src="https://player.twitch.tv/js/embed/v1.js"></script>
   </head>
   <body>
-    <div id="wrap">
-      <div id="twitch-embed" style="width:100%;height:100%"></div>
+    <div id="header">
+      <input id="search" type="text" placeholder="Введите канал..." />
+      <button id="btn" onclick="loadChannel()">Найти</button>
     </div>
 
+    <div id="popular">
+      <button onclick="setChannel('riotgames')">RiotGames</button>
+      <button onclick="setChannel('esl_csgo')">ESL_CSGO</button>
+      <button onclick="setChannel('xqc')">xQc</button>
+      <button onclick="setChannel('pokimane')">Pokimane</button>
+      <button onclick="setChannel('shroud')">Shroud</button>
+    </div>
+
+    <div id="twitch-embed"></div>
+
     <script>
-      const params = new URLSearchParams(location.search);
-      const channel = (params.get("channel") || "riotgames").replace(/[^a-zA-Z0-9_]/g, "");
-      const parentDomain = location.hostname;
-      new Twitch.Embed("twitch-embed", {
-        channel,
-        width: "100%",
-        height: "100%",
-        parent: [parentDomain]
-      });
+      let player;
+      function setChannel(ch) {
+        if (player) {
+          player.setChannel(ch);
+        }
+      }
+      function loadChannel() {
+        const ch = document.getElementById("search").value.trim();
+        if (ch) setChannel(ch);
+      }
+      window.onload = () => {
+        const params = new URLSearchParams(location.search);
+        const channel = (params.get("channel") || "riotgames").replace(/[^a-zA-Z0-9_]/g, "");
+        player = new Twitch.Embed("twitch-embed", {
+          channel,
+          width: "100%",
+          height: "100%",
+          parent: [location.hostname]
+        });
+      };
     </script>
   </body>
 </html>
+
