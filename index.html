@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Twitch in Telegram</title>
+    <style>
+      html, body { margin:0; padding:0; height:100%; background:#000; }
+      #wrap { position:fixed; inset:0; }
+      iframe { width:100%; height:100%; border:0; }
+    </style>
+    <script src="https://player.twitch.tv/js/embed/v1.js"></script>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="twitch-embed" style="width:100%;height:100%"></div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const channel = (params.get("channel") || "riotgames").replace(/[^a-zA-Z0-9_]/g, "");
+      const parentDomain = location.hostname;
+      new Twitch.Embed("twitch-embed", {
+        channel,
+        width: "100%",
+        height: "100%",
+        parent: [parentDomain]
+      });
+    </script>
+  </body>
+</html>
