@@ -1,192 +1,1045 @@
 <!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Media Control</title>
-    <style>
-      html, body {
-        margin:0; padding:0; height:100%; background:#0e0e10; color:#fff;
-        font-family: Arial, sans-serif;
-      }
-      #menu {
-        display:flex; gap:5px; padding:10px; background:#18181b;
-        border-bottom:1px solid #2f2f35;
-      }
-      #menu button {
-        flex:1; padding:8px; border:none; border-radius:5px;
-        background:#2f2f35; color:white; cursor:pointer;
-        font-weight:bold;
-      }
-      #menu button.active { background:#9146ff; }
-      #content > div { display:none; height:calc(100% - 60px); }
-      #header {
-        display:flex; gap:10px; padding:10px; background:#18181b;
-        align-items:center; border-bottom:1px solid #2f2f35;
-      }
-      #search {
-        flex:1; padding:8px; border-radius:5px; border:none;
-        font-size:14px;
-      }
-      #btn {
-        padding:8px 14px; background:#9146ff; border:none; border-radius:5px;
-        color:white; cursor:pointer; font-weight:bold;
-      }
-      #btn:hover { background:#772ce8; }
-      #twitch-embed, #youtube-embed {
-        width:100%; height:calc(100% - 110px); display:none;
-      }
-      #placeholder {
-        display:flex; align-items:center; justify-content:center;
-        height:calc(100% - 110px); font-size:18px; color:#aaa;
-      }
-      #results {
-        padding:10px; background:#18181b;
-      }
-      .video-item {
-        display:flex; gap:10px; align-items:center;
-        background:#2f2f35; margin-bottom:8px; padding:6px;
-        border-radius:5px; cursor:pointer;
-      }
-      .video-item:hover { background:#3f3f46; }
-      .video-item img { width:120px; border-radius:4px; }
-      .video-item span { flex:1; }
-    </style>
-    <script src="https://player.twitch.tv/js/embed/v1.js"></script>
-  </head>
-  <body>
-    <div id="menu">
-      <button id="btn-twitch" onclick="showTab('twitch')">🎮 Twitch</button>
-      <button id="btn-youtube" onclick="showTab('youtube')">▶️ YouTube</button>
-      <button id="btn-hdrezka" onclick="showTab('hdrezka')">🎬 HdRezka</button>
-    </div>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ИИ Интерактивное кино — MVP</title>
+  <!-- Tailwind (CDN, без сборки) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React / ReactDOM UMD -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel для on-the-fly компиляции JSX (только для демо/статичного хостинга) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-black">
+  <div id="root"></div>
 
-    <div id="content">
-      <!-- Twitch -->
-      <div id="twitch-tab">
-        <div id="header">
-          <input id="search-twitch" type="text" placeholder="Введите канал..." onkeypress="if(event.key==='Enter'){loadTwitch()}"/>
-          <button id="btn" onclick="loadTwitch()">Найти</button>
+  <script type="text/babel">
+    // ⬇️ ВСТАВЬ СЮДА КОД КОМПОНЕНТА ИЗ CANVAS (ничего больше менять не нужно)
+import * as React from "react";
+
+export default function InteractiveCinemaMVP() {
+  // --- App State ---
+  const DEFAULT_LOOP_SECONDS = 480; // 8 minutes = 480s
+  const [loopSeconds, setLoopSeconds] = React.useState(DEFAULT_LOOP_SECONDS);
+  const [timeLeft, setTimeLeft] = React.useState(loopSeconds);
+  const [loopCount, setLoopCount] = React.useState(1);
+  const [sceneId, setSceneId] = React.useState("start");
+  const [history, setHistory] = React.useState([]);
+  const [clues, setClues] = React.useState([]);
+  const [toast, setToast] = React.useState("");
+  const [fastMode, setFastMode] = React.useState(false);
+  const [muted, setMuted] = React.useState(true);
+  const [sceneImages, setSceneImages] = React.useState({}); // sceneId -> dataURL or URL
+  const [autoGen, setAutoGen] = React.useState(true);
+  const [genStyle, setGenStyle] = React.useState("storyboard");
+  const fileRef = React.useRef(null);
+  const [freeAction, setFreeAction] = React.useState("");
+
+  // --- Assistant Image Gen (no external API) ---
+  const [gptStyle, setGptStyle] = React.useState('realistic');
+  const [assistModal, setAssistModal] = React.useState(false);
+  const [assistProgress, setAssistProgress] = React.useState('ready');
+  const [assistantAsk, setAssistantAsk] = React.useState('');
+  const pollRef = React.useRef(null);
+
+  // New: manual paste/drop modal when clipboard is blocked
+  const [pasteModal, setPasteModal] = React.useState(false);
+  const pasteBoxRef = React.useRef(null);
+
+  // --- Lightweight tests state ---
+  const [testReport, setTestReport] = React.useState(null);
+
+  // --- Scenes Engine ---
+  const SCENES = React.useMemo(() => ({
+    start: {
+      title: "СЦЕНА 1 — ПРОБУЖДЕНИЕ (T-08:00)",
+      text: `Вы открываете глаза. Металлический гул поезда. Тесный туалет, запотевшее зеркало.
+В отражении — чужое лицо. В кармане — билет: Марк Стросс, инженер.
+В ухе потрескивает голос оператора: «Капитан Коултер, вы в симуляции. У вас 8 минут до взрыва. Найдите бомбу».`,
+      prompt: `35yo man in a cramped train restroom mirror, shocked expression, fogged glass, stainless walls, faint motion blur from moving train; cold blue, high contrast; cyberpunk-noir; cinematic, shallow depth of field`,
+      choices: [
+        { id: 1, label: "Осмотреть сумку", next: "bag" },
+        { id: 2, label: "Выйти в коридор", next: "corridor" },
+        { id: 3, label: "Позвонить оператору", next: "call" },
+      ],
+    },
+    bag: {
+      title: "СЦЕНА — СУМКА",
+      text: `Внутри — бумажник, одноразочный телефон, проездной, салфетки. Подкладка распорота и заново прошита.
+На ткани — следы графита. Это может быть схрон.`,
+      onEnter: () => addClueSafe("Следы графита в подкладке"),
+      prompt: `open messenger bag with improvised lining stitches, tiny graphite smudges, forensic macro, cyber-noir lighting`,
+      choices: [
+        { id: 1, label: "Проверить подкладку внимательнее", next: "lining" },
+        { id: 2, label: "Вернуться в коридор", next: "corridor" },
+        { id: 3, label: "Набрать оператора", next: "call" },
+      ],
+    },
+    lining: {
+      title: "СЦЕНА — ПОДКЛАДКА",
+      text: `Вы нащупываете тонкую пластину — SIM-карта с обломанным уголком и микроконтроллером. Кто-то использует её как детонатор на удалённом канале.`,
+      onEnter: () => addClueSafe("SIM-плата с контроллером (возможный детонатор)"),
+      prompt: `macro shot of sim card with microcontroller add-on, improvised electronics, cinematic close-up, blue steel palette`,
+      choices: [
+        { id: 1, label: "Сломать плату", next: "fail_hint" },
+        { id: 2, label: "Спрятать и идти в коридор", next: "corridor" },
+        { id: 3, label: "Соединить с оператором", next: "call" },
+      ],
+    },
+    corridor: {
+      title: "СЦЕНА 2 — КОРИДОР (T-07:25)",
+      text: `Узкий проход, пассажиры, запах кофе. Впереди — человек в чёрном с жёстким кейсом. Он идёт быстро и оглядывается. В хвосте вагона — проводник. Время утекает.`,
+      prompt: `narrow moving train aisle, man in black coat carrying a hard case, passengers blurred, cyberpunk-noir, cool blue, cinematic`,
+      choices: [
+        { id: 1, label: "Проследить незаметно", next: "tail" },
+        { id: 2, label: "Резко обогнать и толкнуть плечом", next: "bump" },
+        { id: 3, label: "Срезать к вагону 3", next: "car3_prep" },
+      ],
+    },
+    tail: {
+      title: "СЦЕНА — ХВОСТ",
+      text: `Вы держите дистанцию. На кейсе — мелкая наклейка: «Li-ion». Пальцы у него в чёрной пыли — графит?`,
+      onEnter: () => addClueSafe("Кейс с Li-ion, пальцы в графите у подозреваемого"),
+      prompt: `hard case with tiny li-ion warning sticker, suspect hand with graphite dust, shallow depth of field, tense tracking shot`,
+      choices: [
+        { id: 1, label: "Позвать проводника — проверить кейс", next: "conductor" },
+        { id: 2, label: "Следовать до вагона 3", next: "car3_meet" },
+        { id: 3, label: "Попытаться открыть кейс ключом из сумки", next: "lock_try" },
+      ],
+    },
+    bump: {
+      title: "СЦЕНА — СТОЛКНОВЕНИЕ",
+      text: `Вы задеваете его плечом. Кейс на мгновение приоткрывается — внутри батареи и маленькая плата с антенкой. Он клацает замком и шипит: «Смотри под ноги».`,
+      onEnter: () => addClueSafe("Внутри кейса: батареи + плата с антенной"),
+      prompt: `hard case briefly open revealing batteries and tiny radio board, dynamic motion, tense moment, cinematic still`,
+      choices: [
+        { id: 1, label: "Отступить и проследить дальше", next: "car3_meet" },
+        { id: 2, label: "Схватить кейс и бежать к проводнику", next: "conductor" },
+        { id: 3, label: "Уйти через переход — перехват в вагоне 3", next: "car3_prep" },
+      ],
+    },
+    conductor: {
+      title: "СЦЕНА — ПРОВОДНИК",
+      text: `Проводник сначала не верит. Но, увидев наклейку и ваши документы, соглашается помочь. Он открывает внутреннюю связь.`,
+      onEnter: () => addClueSafe("Проводник готов помочь, доступ к внутренней связи"),
+      prompt: `train conductor worried, intercom handset, emergency protocol vibes, cinematic`,
+      choices: [
+        { id: 1, label: "Требовать экстренную остановку", next: "fail_stop" },
+        { id: 2, label: "Попросить объявить код-слово для эвакуации вагона 3", next: "car3_clear" },
+        { id: 3, label: "Попросить доступ к тех. шкафу (глушилка)", next: "jammer" },
+      ],
+    },
+    car3_prep: {
+      title: "СЦЕНА — ПЕРЕХОД К ВАГОНУ 3",
+      text: `Вы опережаете подозреваемого. В тамбуре — тех. шкаф. Вы чувствуете слабый фон радиосигнала.`,
+      prompt: `narrow vestibule between train cars, technical cabinet, faint radio signal indicator, cyber-noir`,
+      choices: [
+        { id: 1, label: "Открыть тех. шкаф", next: "jammer" },
+        { id: 2, label: "Спрятаться и ждать его", next: "car3_meet" },
+        { id: 3, label: "Связаться с оператором", next: "call" },
+      ],
+    },
+    jammer: {
+      title: "СЦЕНА — ГЛУШИЛКА",
+      text: `Внутри — аварийный блок с функцией глушения связи (для тестов сети). Его можно включить локально на 2 минуты.`,
+      onEnter: () => addClueSafe("Глушилка на 2 минуты в тех. шкафу"),
+      prompt: `emergency comms test box with simple switch, minimal UI, glowing indicator, macro cinematic`,
+      choices: [
+        { id: 1, label: "Включить глушение (2 мин)", next: "jammer_on" },
+        { id: 2, label: "Не трогать и идти дальше", next: "car3_meet" },
+        { id: 3, label: "Вернуться к проводнику", next: "conductor" },
+      ],
+    },
+    jammer_on: {
+      title: "СЦЕНА — ГЛУШЕНИЕ АКТИВНО",
+      text: `Вы включаете глушение. Радиоканал должен быть заблокирован на 120 секунд. Этого хватит, чтобы изъять детонатор.`,
+      onEnter: () => addClueSafe("Глушение активно — окно 120с"),
+      prompt: `close-up of toggle switch flipped, small timer display reading 120s, cinematic tension`,
+      choices: [
+        { id: 1, label: "Идти в вагон 3 и перехватить", next: "car3_meet" },
+        { id: 2, label: "Позвать проводника для эвакуации", next: "car3_clear" },
+        { id: 3, label: "Связаться с оператором", next: "call" },
+      ],
+    },
+    car3_meet: {
+      title: "СЦЕНА — ВАГОН 3: СТОЛКНОВЕНИЕ",
+      text: `Подозреваемый встречается с человеком в сером. Они меняются объектами: кейс ↔ SIM-плата. Ваш шанс вмешаться.`,
+      prompt: `two men exchanging hard case and tiny sim board in train car, tense standoff, cinematic`,
+      choices: [
+        { id: 1, label: "Схватить SIM-плату и разорвать соединение", next: "success" },
+        { id: 2, label: "Выстрелить из аварийного пистолета (провал)", next: "fail_noise" },
+        { id: 3, label: "Отчаянно нажать стоп-кран", next: "fail_stop" },
+      ],
+    },
+    car3_clear: {
+      title: "СЦЕНА — ВАГОН 3 ОЧИЩЕН",
+      text: `Объявление срабатывает: пассажиры переходят в соседние вагоны. Пространство освобождено.`,
+      prompt: `empty train car, seats, evacuation announcement echo, cinematic still`,
+      choices: [
+        { id: 1, label: "Подкараулить подозреваемого у входа", next: "car3_meet" },
+        { id: 2, label: "Установить баррикаду из сидений", next: "fail_noise" },
+        { id: 3, label: "Включить глушилку и ждать", next: "jammer_on" },
+      ],
+    },
+    lock_try: {
+      title: "СЦЕНА — ЗАМОК",
+      text: `Ваш ключ не подходит. Подозреваемый замечает попытку и ускоряется. Время теряется.`,
+      prompt: `close-up failed key attempt on hard case lock, brief eye contact with suspect, cinematic`,
+      choices: [
+        { id: 1, label: "Проследовать в вагон 3", next: "car3_meet" },
+        { id: 2, label: "Отступить к проводнику", next: "conductor" },
+        { id: 3, label: "Попробовать взломать — риск (провал)", next: "fail_noise" },
+      ],
+    },
+    call: {
+      title: "СЦЕНА — СВЯЗЬ С ОПЕРАТОРОМ",
+      text: `«Подтверждаю петлю на 8 минут. Держите низкий профиль. Любая паника ускоряет провал». Шёпотом оператор даёт кодовое слово: «Маяк-12».`,
+      onEnter: () => addClueSafe("Кодовое слово оператора: Маяк-12"),
+      prompt: `close-up of small earpiece/comm, mission control voice implied, moody cinematic`,
+      choices: [
+        { id: 1, label: "Сказать код слово проводнику", next: "conductor" },
+        { id: 2, label: "Вернуться к коридору", next: "corridor" },
+        { id: 3, label: "Задать вопрос о выходе из симуляции (тайная)", next: "secret" },
+      ],
+    },
+    // Endings
+    success: {
+      title: "ФИНАЛ — УСПЕХ",
+      text: `Вы успеваете вырвать SIM-плату и переломить дорожки. Радиоканал пуст. Кейс превращается в безобидный контейнер батарей. Пассажиры спасены.
+Оператор: «Чистая работа, капитан. Петля завершена».`,
+      prompt: `hero disables improvised detonator, relieved passengers in background, cinematic climax`,
+      ending: "success",
+      choices: [
+        { id: 1, label: "Перезапустить с начала", next: "restart" },
+        { id: 2, label: "Экспортировать журнал", next: "export" },
+        { id: 3, label: "Остаться и перечитать", next: "stay" },
+      ],
+    },
+    fail_stop: {
+      title: "ФИНАЛ — ПРОВАЛ (СТОП-КРАН)",
+      text: `Резкая остановка вызывает искрение и короткое замыкание. Детонатор срабатывает преждевременно. Тьма. Петля начинает заново.`,
+      prompt: `red emergency brake handle pulled, sparks, abrupt chaos, cinematic`,
+      ending: "fail",
+      choices: [
+        { id: 1, label: "Перезапуск петли", next: "restart" },
+        { id: 2, label: "Попробовать другой путь", next: "start" },
+        { id: 3, label: "Экспорт журнала", next: "export" },
+      ],
+    },
+    fail_noise: {
+      title: "ФИНАЛ — ПРОВАЛ (ШУМ)",
+      text: `Громкие действия привлекают охрану. Подозреваемые уходят в толпе. Таймер доходит до нуля. Вспышка. Перезапуск.`,
+      prompt: `blinding flash in train car, chaos blur, cinematic`,
+      ending: "fail",
+      choices: [
+        { id: 1, label: "Перезапуск петли", next: "restart" },
+        { id: 2, label: "Вернуться к началу", next: "start" },
+        { id: 3, label: "Экспорт журнала", next: "export" },
+      ],
+    },
+    fail_hint: {
+      title: "ФИНАЛ — ПРОВАЛ (НЕОСТОРОЖНО)",
+      text: `Вы ломаете плату — она отправляет импульс на резервный канал. Детонация. Вы понимаете ошибку, но уже поздно.`,
+      prompt: `tiny circuit snapped, sudden spark, cinematic`,
+      ending: "fail",
+      choices: [
+        { id: 1, label: "Перезапуск петли", next: "restart" },
+        { id: 2, label: "Вернуться к началу", next: "start" },
+        { id: 3, label: "Экспорт журнала", next: "export" },
+      ],
+    },
+    secret: {
+      title: "ТАЙНАЯ КОНЦОВКА",
+      text: `Вы шепчете: «Запрос на выход: Маяк-12». На долю секунды всё гаснет. Вы видите свою капсулу, датчики, зелёный индикатор ЖИЗНЬ. Затем — миг, и сцена возвращается. Оператор молчит, но вы знаете: пределы есть.`,
+      prompt: `dim lab pod, cables, monitors, brief awakening, cinematic surreal`,
+      ending: "secret",
+      choices: [
+        { id: 1, label: "Перезапустить петлю", next: "restart" },
+        { id: 2, label: "Вернуться к началу", next: "start" },
+        { id: 3, label: "Экспорт журнала", next: "export" },
+      ],
+    },
+  }), []);
+
+  // --- Helpers ---
+  function addClueSafe(clue) {
+    setClues((prev) => (prev.includes(clue) ? prev : [...prev, clue]));
+  }
+
+  function addHistory(entry) {
+    setHistory((h) => [
+      ...h,
+      {
+        t: new Date().toISOString(),
+        loop: loopCount,
+        scene: sceneId,
+        action: entry,
+      },
+    ]);
+  }
+
+  // Write-to-clipboard with robust fallback (fix for NotAllowedError)
+  async function safeWriteClipboard(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      // swallow and try fallback
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function copyPrompt() {
+    const s = SCENES[sceneId]?.prompt || "";
+    if (!s) return;
+    const ok = await safeWriteClipboard(s);
+    showToast(ok ? "SD-промпт скопирован" : "Не удалось скопировать — текст выделен ниже");
+  }
+
+  function exportLog() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      loopSeconds,
+      loops: loopCount,
+      history,
+      clues,
+      sceneImages,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `interactive-cinema-log-loop${loopCount}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2000);
+  }
+
+  // --- Свободное действие ---
+  function guessNextFromFree(text) {
+    const q = (text || "").toLowerCase();
+    if (/сумк|bag/.test(q)) return "bag";
+    if (/подклад|sim|сим|карта/.test(q)) return "lining";
+    if (/корид|проход|впер|corridor|aisle/.test(q)) return "corridor";
+    if (/проводник|кондуктор|conductor/.test(q)) return "conductor";
+    if (/глушил|jam/.test(q)) return "jammer";
+    if (/вагон\s*3|car\s*3|встреч/.test(q)) return "car3_meet";
+    if (/эвак|очищ/.test(q)) return "car3_clear";
+    if (/стоп|кран|stop/.test(q)) return "fail_stop"; // FIXED earlier
+    if (/секрет|выход|капсул|secret/.test(q)) return "secret";
+    if (/след|хвост|tail|прослед/.test(q)) return "tail";
+    if (/столк|толкн|bump/.test(q)) return "bump";
+    if (/замок|ключ|lock/.test(q)) return "lock_try";
+    if (/звон|связ|оператор|call/.test(q)) return "call";
+    return (SCENES[sceneId]?.choices?.[0]?.next) || "corridor";
+  }
+  function runFreeAction() {
+    const txt = freeAction.trim();
+    if (!txt) return;
+    addHistory(`Свободное действие: "${txt}"`);
+    const next = guessNextFromFree(txt);
+    setFreeAction("");
+    go(next);
+  }
+
+  // --- Assistant image generation (no API) ---
+  function buildPrompt(id){
+    const s = SCENES[id] || {};
+    const base = s.prompt || '';
+    const cinematic = gptStyle === 'realistic'
+      ? 'highly detailed, realistic people and props, cinematic lighting, 3:2, train interior'
+      : 'stylized storyboard frame, clean lines, expressive characters, 3:2, train interior';
+    return `${base}, ${cinematic}`.trim();
+  }
+
+  function buildAssistantAsk(id){
+    const scene = SCENES[id] || {};
+    const prompt = buildPrompt(id);
+    return `Сгенерируй изображение для интерактивного кино.\nСцена: ${scene.title}.\nКраткое описание: ${scene.text.split('\n')[0]}.\nПромпт: ${prompt}.\nРазмер: 1200x675px (3:2). Верни как PNG.`;
+  }
+
+  async function copyRequestForAssistant(id){
+    const ask = buildAssistantAsk(id);
+    setAssistantAsk(ask);
+    const ok = await safeWriteClipboard(ask);
+    if (ok) {
+      showToast('Запрос скопирован в буфер — вставьте в чат');
+    } else {
+      showToast('Не удалось скопировать — выделите и нажмите Ctrl+C');
+      setAssistModal(true); // покажем текст для ручного копирования
+      setAssistProgress('copied');
+    }
+  }
+
+  // Helpers to read image/text from paste/drop events
+  function readFileToScene(file){
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSceneImages((m) => ({ ...m, [sceneId]: reader.result }));
+      showToast('Кадр добавлен');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handlePasteEvent(e){
+    const dt = e.clipboardData;
+    if (!dt) return;
+    // images first
+    if (dt.items && dt.items.length){
+      for (const it of dt.items){
+        if (it.type && it.type.startsWith('image/')){
+          const file = it.getAsFile();
+          if (file){ readFileToScene(file); e.preventDefault(); return; }
+        }
+      }
+    }
+    const text = dt.getData && dt.getData('text/plain');
+    if (text && (/^data:image\//i.test(text) || /^https?:/i.test(text))){
+      setSceneImages(m => ({ ...m, [sceneId]: text }));
+      showToast('Кадр вставлен из текста буфера');
+      e.preventDefault();
+      return;
+    }
+  }
+
+  function handleDropEvent(e){
+    e.preventDefault();
+    if (e.dataTransfer?.files?.length){
+      const file = e.dataTransfer.files[0];
+      if (file && /^image\//i.test(file.type)){
+        readFileToScene(file);
+      }
+    }
+  }
+
+  async function pasteImageFromClipboard(){
+    try{
+      if (navigator.clipboard && navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items){
+          const type = item.types.find(t => t.startsWith('image/'));
+          if (type){
+            const blob = await item.getType(type);
+            const reader = new FileReader();
+            reader.onload = () => { setSceneImages(m => ({ ...m, [sceneId]: reader.result })); showToast('Кадр вставлен из буфера'); };
+            reader.readAsDataURL(blob);
+            return true;
+          }
+        }
+      }
+      // fallback: try read text (data URL or http)
+      const text = await navigator.clipboard.readText();
+      if (/^data:image\//i.test(text) || /^https?:/i.test(text)){
+        setSceneImages(m => ({ ...m, [sceneId]: text }));
+        showToast('Кадр вставлен из текста буфера');
+        return true;
+      }
+      showToast('Буфер не содержит изображения');
+      return false;
+    }catch{ 
+      // Permissions Policy blocks programmatic clipboard access. Show manual modal.
+      setPasteModal(true);
+      showToast('Нет доступа к буферу — используйте Ctrl+V/Drag&Drop');
+      return false; 
+    }
+  }
+
+  // --- Assistant flow: one-click generate via assistant and auto-import ---
+  async function checkClipboardOnceSilent(){
+    try{
+      if (navigator.clipboard && navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items){
+          const type = item.types.find(t => t.startsWith('image/'));
+          if (type){
+            const blob = await item.getType(type);
+            const reader = new FileReader();
+            return await new Promise(res=>{ reader.onload=()=>{ setSceneImages(m=>({...m,[sceneId]:reader.result})); res(true); }; reader.readAsDataURL(blob); });
+          }
+        }
+      }
+      const text = await navigator.clipboard.readText();
+      if (/^data:image\//i.test(text) || /^https?:/i.test(text)){
+        setSceneImages(m => ({ ...m, [sceneId]: text }));
+        return true;
+      }
+      return false;
+    }catch{ return false; }
+  }
+  function startPollingClipboard(){
+    stopPollingClipboard();
+    try{
+      pollRef.current = setInterval(async ()=>{
+        const ok = await checkClipboardOnceSilent();
+        if (ok){
+          setAssistProgress('imported');
+          showToast('Кадр импортирован');
+          stopPollingClipboard();
+          setTimeout(()=>setAssistModal(false), 400);
+        }
+      }, 2000);
+    }catch{}
+  }
+  function stopPollingClipboard(){ if (pollRef.current){ clearInterval(pollRef.current); pollRef.current = null; } }
+  async function startAssistantFlow(){
+    const ask = buildAssistantAsk(sceneId);
+    setAssistantAsk(ask);
+    setAssistProgress('ready');
+    setAssistModal(true);
+    const ok = await safeWriteClipboard(ask); // Важное: вызов из onClick
+    setAssistProgress('copied');
+    if (!ok) {
+      showToast('Не удалось скопировать — нажмите кнопку копирования');
+    } else {
+      showToast('Запрос скопирован — вставьте его в чат');
+    }
+    startPollingClipboard();
+  }
+
+  // --- Image helpers ---
+  function setImageFromURL() {
+    const url = window.prompt("Вставьте URL изображения (jpg/png/webp)");
+    if (!url) return;
+    try {
+      new URL(url);
+      setSceneImages((m) => ({ ...m, [sceneId]: url }));
+      showToast("Кадр по URL добавлен");
+    } catch {
+      showToast("Некорректный URL");
+    }
+  }
+
+  function handleUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    readFileToScene(file);
+    e.target.value = "";
+  }
+
+  function clearImage() {
+    setSceneImages((m) => {
+      const n = { ...m };
+      delete n[sceneId];
+      return n;
+    });
+    showToast("Кадр очищен");
+  }
+
+  function placeholderForScene(id) { return generateMockForScene(id, true); }
+
+  function hashCode(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
+    return h;
+  }
+
+  function esc(s){ return String(s||'').replace(/[&<>]/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]; }); }
+
+  function generateMockForScene(id, placeholder){
+    const s = SCENES[id] || {};
+    const title = esc(s.title || 'Сцена');
+    const subtitle = esc((s.text||'').split('\n')[0]).slice(0,90);
+    const hue = Math.abs(hashCode(id)) % 360;
+    const bg1 = `hsl(${hue},70%,12%)`;
+    const bg2 = `hsl(${(hue+40)%360},80%,18%)`;
+
+    // helpers
+    const frame = "<rect x='80' y='160' width='1040' height='360' rx='30' ry='30' fill='rgba(0,0,0,0.22)' stroke='rgba(255,255,255,0.15)'/>";
+    const windowRect = (x)=>`<rect x='${x}' y='200' width='220' height='120' rx='14' fill='rgba(255,255,255,0.10)'/>`;
+    const seat = (x,y)=>`<rect x='${x}' y='${y}' width='120' height='60' rx='12' fill='rgba(255,255,255,0.12)'/>`;
+    const door = (x,y)=>`<rect x='${x}' y='${y}' width='40' height='200' rx='10' fill='rgba(255,255,255,0.10)' stroke='rgba(255,255,255,0.2)'/>`;
+    const arrow = (x1,y1,x2,y2)=>`<line x1='${x1}' y1='${y1}' x2='${x2}' y2='${y2}' stroke='white' stroke-width='6' opacity='0.8'/><polygon points='${x2},${y2} ${x2-12},${y2-8} ${x2-12},${y2+8}' fill='white' opacity='0.8'/>`;
+    const person = (x,y)=>`<circle cx='${x}' cy='${y}' r='22' fill='white' opacity='0.92'/><line x1='${x}' y1='${y+22}' x2='${x}' y2='${y+80}' stroke='white' stroke-width='6' opacity='0.92'/><line x1='${x}' y1='${y+50}' x2='${x-28}' y2='${y+80}' stroke='white' stroke-width='6' opacity='0.92'/><line x1='${x}' y1='${y+50}' x2='${x+28}' y2='${y+80}' stroke='white' stroke-width='6' opacity='0.92'/>`;
+    const caseBox = (x,y,w=90,h=60)=>`<rect x='${x}' y='${y}' width='${w}' height='${h}' rx='10' ry='10' fill='rgba(255,255,255,0.9)'/><rect x='${x+6}' y='${y+6}' width='${w-12}' height='${h-12}' rx='8' ry='8' fill='rgba(0,0,0,0.35)'/>`;
+
+    // base layout variants
+    const trainCommon = frame + windowRect(120) + windowRect(360) + windowRect(600) + windowRect(840)
+      + seat(140,330) + seat(300,330) + seat(460,330) + seat(620,330) + seat(780,330) + seat(940,330);
+
+    let sketch = '';
+    switch(id){
+      case 'start':
+        sketch = "<rect x='80' y='140' width='380' height='390' rx='18' fill='rgba(0,0,0,0.35)'/>"
+               + "<circle cx='270' cy='300' r='70' fill='rgba(255,255,255,0.85)'/>"
+               + "<rect x='260' y='220' width='20' height='90' fill='rgba(0,0,0,0.5)'/>";
+        break;
+      case 'corridor':
+      case 'car3_prep':
+        sketch = trainCommon + person(220,280) + person(980,280) + arrow(230,280,340,280);
+        break;
+      case 'tail':
+        sketch = trainCommon + person(260,280) + caseBox(420,320) + "<text x='430' y='315' fill='rgba(255,255,255,0.95)' font-size='14'>Li‑ion</text>" + arrow(270,280,350,280);
+        break;
+      case 'bump':
+        sketch = trainCommon + person(420,280) + person(520,280) + caseBox(470,330) + "<polygon points='495,255 520,280 495,305 470,280' fill='white' opacity='0.9'/>";
+        break;
+      case 'bag':
+        sketch = "<rect x='220' y='250' width='520' height='220' rx='30' fill='rgba(255,255,255,0.92)'/>" + "<rect x='240' y='270' width='480' height='160' rx='16' fill='rgba(0,0,0,0.45)'/>" + "<rect x='250' y='265' width='460' height='12' rx='6' fill='rgba(255,255,255,0.9)'/>";
+        break;
+      case 'lining':
+        sketch = "<rect x='360' y='270' width='240' height='140' rx='18' fill='rgba(255,255,255,0.95)'/>" + "<rect x='380' y='300' width='80' height='80' rx='10' fill='rgba(255,215,0,0.9)'/>" + "<rect x='480' y='290' width='100' height='100' rx='12' fill='rgba(0,0,0,0.55)'/>" + "<text x='388' y='315' fill='black' font-size='10'>SIM</text>";
+        break;
+      case 'conductor':
+        sketch = trainCommon + "<rect x='150' y='320' width='140' height='70' rx='8' fill='rgba(255,255,255,0.92)'/>" + "<rect x='165' y='335' width='110' height='40' rx='6' fill='rgba(0,0,0,0.35)'/>" + person(980,280);
+        break;
+      case 'jammer':
+        sketch = "<rect x='420' y='240' width='360' height='240' rx='20' fill='rgba(0,0,0,0.45)' stroke='rgba(255,255,255,0.3)'/>" + "<rect x='520' y='280' width='40' height='120' rx='6' fill='rgba(255,255,255,0.95)'/>" + "<circle cx='640' cy='340' r='10' fill='rgba(255,255,255,0.9)'/>";
+        break;
+      case 'jammer_on':
+        sketch = "<rect x='420' y='240' width='360' height='240' rx='20' fill='rgba(0,0,0,0.45)' stroke='rgba(255,255,255,0.3)'/>" + "<rect x='520' y='280' width='40' height='120' rx='6' fill='rgba(120,255,120,0.95)'/>" + "<circle cx='640' cy='340' r='10' fill='rgba(120,255,120,0.95)'/>" + "<circle cx='640' cy='340' r='22' fill='none' stroke='rgba(120,255,120,0.7)' stroke-width='3'/>" + "<circle cx='640' cy='340' r='36' fill='none' stroke='rgba(120,255,120,0.5)' stroke-width='3'/>" + "<text x='620' y='400' fill='rgba(255,255,255,0.9)' font-size='16'>120s</text>";
+        break;
+      case 'car3_meet':
+        sketch = trainCommon + person(420,280) + person(760,280) + caseBox(480,330) + "<rect x='700' y='330' width='36' height='24' fill='rgba(255,255,255,0.92)'/>" + arrow(500,330,680,330) + arrow(740,330,560,330);
+        break;
+      case 'car3_clear':
+        sketch = frame + seat(200,320) + seat(360,320) + seat(520,320) + seat(680,320) + seat(840,320); // пустой вагон
+        break;
+      case 'lock_try':
+        sketch = trainCommon + caseBox(520,320) + "<rect x='585' y='345' width='12' height='12' fill='rgba(255,255,255,0.95)'/>" + "<path d='M590 345 L590 330' stroke='rgba(255,255,255,0.9)' stroke-width='3'/>";
+        break;
+      case 'call':
+        sketch = person(300,260) + "<circle cx='350' cy='260' r='8' fill='rgba(255,255,255,0.95)'/>" + "<path d='M360 260 L430 230' stroke='rgba(255,255,255,0.85)' stroke-width='3'/>" + "<circle cx='440' cy='225' r='4' fill='rgba(255,255,255,0.9)'/>" + "<circle cx='450' cy='220' r='7' fill='none' stroke='rgba(255,255,255,0.7)' stroke-width='2'/>";
+        break;
+      case 'success':
+        sketch = person(420,280) + "<rect x='480' y='330' width='36' height='24' fill='rgba(255,255,255,0.95)'/>" + "<text x='600' y='340' fill='rgba(120,255,120,0.95)' font-size='90' font-weight='800'>✓</text>";
+        break;
+      case 'fail_stop':
+        sketch = frame + door(560,200) + "<rect x='570' y='280' width='20' height='60' rx='6' fill='rgba(255,0,0,0.9)'/>" + "<polygon points='600,320 640,300 680,320 660,360 620,360' fill='rgba(255,255,255,0.9)'/>";
+        break;
+      case 'fail_noise':
+      case 'fail_hint':
+        sketch = trainCommon + "<polygon points='600,320 640,300 680,320 660,360 620,360' fill='rgba(255,255,255,0.9)'/>";
+        break;
+      case 'secret':
+        sketch = "<rect x='260' y='200' width='680' height='280' rx='40' fill='rgba(255,255,255,0.08)' stroke='rgba(255,255,255,0.3)'/>" + "<circle cx='600' cy='340' r='26' fill='rgba(0,255,0,0.6)'/>" + "<rect x='540' y='230' width='120' height='40' rx='10' fill='rgba(255,255,255,0.15)'/>";
+        break;
+      default:
+        sketch = trainCommon;
+    }
+
+    const overlay = genStyle === 'comic'
+      ? "<rect x='24' y='24' width='1152' height='627' rx='20' ry='20' fill='rgba(0,0,0,0.12)'/><rect x='44' y='44' width='520' height='240' rx='12' fill='rgba(0,0,0,0.12)'/><rect x='44' y='300' width='520' height='300' rx='12' fill='rgba(0,0,0,0.12)'/><rect x='584' y='44' width='572' height='556' rx='12' fill='rgba(0,0,0,0.12)'/>"
+      : genStyle === 'poster'
+      ? "<rect x='40' y='40' width='1120' height='595' rx='28' ry='28' fill='rgba(0,0,0,0.18)'/>"
+      : '';
+
+    const svg = `
+      <svg xmlns='http://www.w3.org/2000/svg' width='1200' height='675'>
+        <defs>
+          <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='${bg1}'/>
+            <stop offset='100%' stop-color='${bg2}'/>
+          </linearGradient>
+        </defs>
+        <rect width='1200' height='675' fill='url(#g)'/>
+        ${overlay}
+        ${sketch}
+        <rect x='40' y='520' width='1120' height='115' fill='rgba(0,0,0,0.42)'/>
+        <text x='60' y='560' fill='white' font-family='Inter, system-ui, -apple-system, Segoe UI' font-size='22' font-weight='700'>${title}</text>
+        <text x='60' y='590' fill='rgba(255,255,255,0.9)' font-family='Inter, system-ui, -apple-system, Segoe UI' font-size='18'>${subtitle}</text>
+        <text x='60' y='640' fill='rgba(255,255,255,0.6)' font-family='Inter, system-ui, -apple-system, Segoe UI' font-size='14'>${placeholder ? 'Плейсхолдер' : (genStyle==='comic'?'Комикс‑скетч':'Авто‑скетч по сцене')}</text>
+      </svg>`;
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
+
+  function autoGenerateFor(id){
+    const src = generateMockForScene(id);
+    setSceneImages(m => ({ ...m, [id]: src }));
+    showToast('Мок‑кадр сгенерирован');
+  }
+  function batchGenerateAll(){ Object.keys(SCENES).forEach(i => { autoGenerateFor(i); }); showToast('Сгенерированы мок‑кадры для всех сцен'); }
+  function downloadCurrentImage(){
+    const src = sceneImages[sceneId];
+    if (!src) { showToast('Нет изображения для сцены'); return; }
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = sceneId + '.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // --- Persistence ---
+  React.useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ic_mvp_state") || "null");
+      if (saved) {
+        setLoopSeconds(saved.loopSeconds || DEFAULT_LOOP_SECONDS);
+        setTimeLeft(saved.timeLeft ?? (saved.loopSeconds ?? DEFAULT_LOOP_SECONDS));
+        setLoopCount(saved.loopCount || 1);
+        setSceneId(saved.sceneId || "start");
+        setHistory(saved.history || []);
+        setClues(saved.clues || []);
+        setFastMode(saved.fastMode || false);
+        setSceneImages(saved.sceneImages || {});
+      }
+    } catch {}
+  }, []);
+
+  React.useEffect(() => {
+    const state = { loopSeconds, timeLeft, loopCount, sceneId, history, clues, fastMode, sceneImages };
+    try { localStorage.setItem("ic_mvp_state", JSON.stringify(state)); } catch {}
+  }, [loopSeconds, timeLeft, loopCount, sceneId, history, clues, fastMode, sceneImages]);
+
+  // --- Timer ---
+  React.useEffect(() => {
+    setTimeLeft(loopSeconds);
+  }, [loopSeconds, loopCount]);
+
+  React.useEffect(() => {
+    const tick = () => setTimeLeft((t) => (t > 0 ? t - 1 : 0));
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  React.useEffect(() => {
+    if (timeLeft === 0) {
+      // Auto restart loop unless we are on an ending scene already
+      const ending = SCENES[sceneId]?.ending;
+      if (!ending) {
+        showToast("Взрыв. Петля перезапущена.");
+        setLoopCount((c) => c + 1);
+        setSceneId("start");
+        setTimeLeft(loopSeconds);
+      }
+    }
+  }, [timeLeft]);
+
+  // Auto-generate a mock frame when entering a scene (if enabled)
+  React.useEffect(() => {
+    if (autoGen && !sceneImages[sceneId]) { autoGenerateFor(sceneId); }
+  }, [sceneId, autoGen]);
+
+  // Stop clipboard polling on unmount
+  React.useEffect(() => () => stopPollingClipboard(), []);
+
+  // Focus paste box when modal appears
+  React.useEffect(() => {
+    if (pasteModal) setTimeout(()=>{ pasteBoxRef.current?.focus(); }, 50);
+  }, [pasteModal]);
+
+  // --- Scene transitions ---
+  function go(next) {
+    if (next === "restart") {
+      setLoopCount((c) => c + 1);
+      setSceneId("start");
+      setTimeLeft(loopSeconds);
+      addHistory("Перезапуск петли");
+      return;
+    }
+    if (next === "export") {
+      exportLog();
+      addHistory("Экспорт журнала");
+      return;
+    }
+    if (next === "stay") {
+      addHistory("Остаться на сцене");
+      return;
+    }
+    addHistory(`Выбор → ${next}`);
+    setSceneId(next);
+    // onEnter hook
+    const s = SCENES[next];
+    if (s && typeof s.onEnter === "function") {
+      try { s.onEnter(); } catch {}
+    }
+  }
+
+  // Keyboard shortcuts 1/2/3
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (["1", "2", "3"].includes(e.key)) {
+        const idx = parseInt(e.key, 10) - 1;
+        const ch = (SCENES[sceneId]?.choices || [])[idx];
+        if (ch) go(ch.next);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [sceneId]);
+
+  const scene = SCENES[sceneId];
+
+  // Progress bar percent
+  const pct = Math.max(0, Math.min(100, (timeLeft / loopSeconds) * 100));
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60).toString().padStart(2, "0");
+    const ss = Math.floor(s % 60).toString().padStart(2, "0");
+    return `${m}:${ss}`;
+  }
+
+  function QuickPresetButton({ label, seconds }) {
+    return (
+      <button
+        onClick={() => { setLoopSeconds(seconds); setTimeLeft(seconds); showToast(`Длительность: ${Math.round(seconds/60)} мин`); }}
+        className="px-3 py-1 rounded-xl border border-white/20 hover:border-white/40 hover:bg-white/5 transition text-xs"
+      >{label}</button>
+    );
+  }
+
+  // --- Minimal inline tests (no env deps) ---
+  React.useEffect(() => {
+    const results = [];
+    const assert = (name, cond) => results.push({ name, ok: !!cond });
+    // existing tests (unchanged)
+    assert('buildPrompt returns non-empty', !!buildPrompt('start'));
+    assert('guessNextFromFree("проследить") → tail', guessNextFromFree('проследить') === 'tail');
+    assert('guessNextFromFree("включить глушилку") → jammer', guessNextFromFree('включить глушилку') === 'jammer');
+    assert('guessNextFromFree("эвакуировать вагон 3") → car3_clear', guessNextFromFree('эвакуировать вагон 3') === 'car3_clear');
+    assert('guessNextFromFree("секретный выход") → secret', guessNextFromFree('секретный выход') === 'secret');
+    // new tests
+    assert('guessNextFromFree("стоп-кран") → fail_stop', guessNextFromFree('стоп-кран') === 'fail_stop');
+    assert('guessNextFromFree("кран") → fail_stop', guessNextFromFree('кран') === 'fail_stop');
+    assert('guessNextFromFree("stop") → fail_stop', guessNextFromFree('stop') === 'fail_stop');
+    assert('guessNextFromFree("???") defaults to first choice of current scene', guessNextFromFree('???') === (SCENES['start']?.choices?.[0]?.next));
+    setTestReport(results);
+  }, []);
+
+  const sceneImg = sceneImages[sceneId] || placeholderForScene(sceneId);
+  const rawSrc = sceneImages[sceneId];
+  const frameLabel = rawSrc ? (rawSrc.startsWith('data:image/svg+xml') ? 'Авто‑мок' : (/^https?:/i.test(rawSrc) ? 'URL' : 'Файл')) : 'Плейсхолдер';
+
+  return (
+    <div className="min-h-screen w-full bg-gradient-to-b from-slate-900 via-slate-950 to-black text-slate-100 p-4">
+      {/* Header */}
+      <div className="max-w-6xl mx-auto flex flex-col gap-3">
+        <header className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-white/10 grid place-items-center">🎬</div>
+            <div>
+              <h1 className="text-xl md:text-2xl font-semibold tracking-tight">ИИ Интерактивное кино — MVP</h1>
+              <p className="text-xs md:text-sm text-slate-300">Три выбора. Одна петля. 8 минут на спасение поезда. Нажимай 1/2/3 на клавиатуре.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <QuickPresetButton label="8 мин" seconds={480} />
+            <QuickPresetButton label="90 сек (демо)" seconds={90} />
+            <QuickPresetButton label="30 сек (быстро)" seconds={30} />
+            <button onClick={() => { setLoopCount((c)=>c+1); setSceneId("start"); setTimeLeft(loopSeconds); showToast("Петля перезапущена"); }} className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs">Перезапуск</button>
+          </div>
+        </header>
+
+        {/* Timer Card */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm">Петля <span className="font-semibold">#{loopCount}</span></div>
+            <div className="text-lg font-mono tabular-nums">{formatTime(timeLeft)}</div>
+          </div>
+          <div className="h-2 mt-3 w-full rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full bg-white/60 transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
-        <div id="placeholder-twitch">Введите название Twitch-канала 👆</div>
-        <div id="twitch-embed"></div>
-      </div>
 
-      <!-- YouTube -->
-      <div id="youtube-tab">
-        <div id="header">
-          <input id="search-youtube" type="text" placeholder="Ссылка, ID или ключевое слово..." onkeypress="if(event.key==='Enter'){loadYoutube()}"/>
-          <button id="btn" onclick="loadYoutube()">Найти</button>
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Story Panel */}
+          <section className="lg:col-span-2 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            {/* Scene image */}
+            <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-white/10 bg-black/40">
+              <img src={sceneImg} alt={scene.title} className="w-full h-full object-cover opacity-90" crossOrigin="anonymous" />
+              <div className="absolute top-2 left-2 text-[10px] bg-black/50 px-2 py-1 rounded-md border border-white/10">Источник: {frameLabel}</div>
+              <div className="absolute bottom-2 right-2 text-[10px] bg-black/50 px-2 py-1 rounded-md border border-white/10">{scene.title}</div>
+            </div>
+
+            {/* New: universal paste/drop zone */}
+            <div
+              onPaste={handlePasteEvent}
+              onDrop={handleDropEvent}
+              onDragOver={(e)=>e.preventDefault()}
+              className="mt-3 w-full rounded-xl border border-dashed border-white/20 bg-black/20 p-3 text-xs text-slate-300"
+              tabIndex={0}
+              title="Сфокусируйте и нажмите Ctrl+V или перетащите файл"
+            >
+              Перетащите PNG/JPG/WebP сюда или кликните и нажмите <span className="font-medium">Ctrl+V</span> (⌘V на Mac) — это обойдёт ограничения браузера на чтение буфера.
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button onClick={() => fileRef.current?.click()} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Загрузить кадр</button>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+              <button onClick={setImageFromURL} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Вставить URL</button>
+              <button onClick={() => autoGenerateFor(sceneId)} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Сгенерировать мок‑кадр</button>
+              <button onClick={batchGenerateAll} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Для всех сцен</button>
+              <button onClick={downloadCurrentImage} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Скачать кадр</button>
+              <button onClick={copyPrompt} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Копировать SD‑промпт</button>
+              {/* unified assistant flow button (copies request with fallback + starts polling) */}
+              <button onClick={startAssistantFlow} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">AI‑генерация (ассистент)</button>
+              <button onClick={pasteImageFromClipboard} className="text-xs px-3 py-1 rounded-xl border border-white/20 hover:bg-white/10">Вставить из буфера</button>
+              <select value={genStyle} onChange={(e)=>setGenStyle(e.target.value)} className="text-xs px-2 py-1 rounded-xl border border-white/20 bg-black/30">
+                <option value="storyboard">Стиль: схема</option>
+                <option value="comic">Стиль: комикс</option>
+                <option value="poster">Стиль: постер</option>
+              </select>
+              <div className="ml-auto flex items-center gap-2 text-xs">
+                <label className="flex items-center gap-1"><input type="checkbox" checked={autoGen} onChange={(e)=>setAutoGen(e.target.checked)} />Автогенерация</label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 mt-4">
+              <h2 className="text-lg md:text-xl font-semibold tracking-tight">{scene.title}</h2>
+            </div>
+            <p className="whitespace-pre-wrap mt-3 leading-relaxed text-slate-200">{scene.text}</p>
+
+            {/* Prompt preview */}
+            <div className="mt-4 text-xs text-slate-300 select-all break-words bg-black/30 p-3 rounded-xl border border-white/10">
+              <div className="mb-1 uppercase tracking-wider text-[10px] text-slate-400">SD‑промпт</div>
+              {scene.prompt}
+            </div>
+
+            {/* Choices */}
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+              {(scene.choices || []).slice(0,3).map((c, idx) => (
+                <button
+                  key={c.id}
+                  onClick={() => go(c.next)}
+                  className="group rounded-2xl border border-white/10 bg-gradient-to-b from-white/10 to-white/[0.02] hover:from-white/20 hover:to-white/[0.06] p-4 text-left transition shadow-lg shadow-black/30"
+                >
+                  <div className="text-[11px] uppercase tracking-widest text-slate-400">Вариант {idx+1}</div>
+                  <div className="mt-1 text-sm md:text-base leading-snug">{c.label}</div>
+                  <div className="mt-2 text-[10px] text-slate-400">Нажмите {idx+1}</div>
+                </button>
+              ))}
+              {/* Ensure 3 buttons visually even if fewer choices */}
+              {Array.from({ length: Math.max(0, 3 - (scene.choices?.length || 0)) }).map((_,i) => (
+                <div key={"stub"+i} className="rounded-2xl border border-white/5 bg-white/[0.01] p-4 opacity-50 grid place-items-center text-xs">—</div>
+              ))}
+            </div>
+
+            {/* Free action input */}
+            <div className="mt-3 flex gap-2">
+              <input
+                value={freeAction}
+                onChange={(e)=>setFreeAction(e.target.value)}
+                onKeyDown={(e)=>{ if(e.key==='Enter') runFreeAction(); }}
+                className="flex-1 px-3 py-2 rounded-xl bg-black/30 border border-white/10 text-sm"
+                placeholder="Или введите своё действие (например: 'проследить', 'включить глушилку', 'позвать проводника')"
+              />
+              <button onClick={runFreeAction} className="px-3 py-2 rounded-xl border border-white/20 hover:bg-white/10 text-sm">Выполнить</button>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">Поддерживаются команды: "проследить", "эвакуировать вагон 3", "позвонить оператору", "секретный выход".</div>
+          </section>
+
+          {/* Right sidebar */}
+          <aside className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <h3 className="text-sm font-semibold">Улики</h3>
+            <ul className="mt-2 space-y-1 text-sm list-disc list-inside text-slate-200">
+              {clues.length ? clues.map((c,i)=>(<li key={i}>{c}</li>)) : <li className="opacity-60">Пусто</li>}
+            </ul>
+            <h3 className="text-sm font-semibold mt-4">Журнал</h3>
+            <div className="mt-2 max-h-56 overflow-auto text-xs leading-relaxed">
+              {history.slice().reverse().slice(0,20).map((h,i)=>(
+                <div key={i} className="opacity-80"><span className="text-slate-400">[{h.loop}]</span> {h.action}</div>
+              ))}
+            </div>
+
+            {/* Tests (collapsed) */}
+            <details className="mt-4 text-xs opacity-80">
+              <summary>Dev‑tests</summary>
+              {testReport ? (
+                <ul className="mt-2 space-y-1">
+                  {testReport.map((r,i)=>(<li key={i} className={r.ok?"text-emerald-300":"text-rose-300"}>{r.ok?"✓":"✗"} {r.name}</li>))}
+                </ul>
+              ) : <div>Running…</div>}
+            </details>
+          </aside>
         </div>
-        <div id="placeholder-youtube">Введите запрос для поиска 👆</div>
-        <div id="results"></div>
-        <div id="youtube-embed"></div>
-      </div>
 
-      <!-- HdRezka -->
-      <div id="hdrezka-tab">
-        <div id="placeholder">В разработке: вход в HdRezka 🎬</div>
+        {/* Toast */}
+        {toast && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-white/10 border border-white/20 text-sm px-4 py-2 rounded-xl shadow-xl">{toast}</div>
+        )}
+
+        {/* Assistant modal */}
+        {assistModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm grid place-items-center p-4 z-50">
+            <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-5">
+              <div className="text-lg font-semibold">AI‑генерация через ассистента</div>
+              <ol className="mt-3 list-decimal list-inside text-sm space-y-1 text-slate-200">
+                <li>Нажмите «Скопировать запрос» (если не скопировалось автоматически).</li>
+                <li>Вставьте запрос сюда в чат → получите изображение.</li>
+                <li>Скопируйте картинку (или data‑URL/ссылку) — я подхвачу её из буфера и добавлю в сцену.</li>
+              </ol>
+              <textarea
+                className="mt-3 w-full h-32 text-[12px] bg-black/30 border border-white/10 rounded-lg p-2"
+                readOnly
+                value={assistantAsk}
+                onFocus={(e)=>e.currentTarget.select()}
+              />
+              {/* Inline paste/drop area inside modal as well */}
+              <div
+                ref={pasteBoxRef}
+                onPaste={(e)=>{ handlePasteEvent(e); setAssistModal(false); stopPollingClipboard(); }}
+                onDrop={(e)=>{ handleDropEvent(e); setAssistModal(false); stopPollingClipboard(); }}
+                onDragOver={(e)=>e.preventDefault()}
+                tabIndex={0}
+                className="mt-3 w-full rounded-xl border border-dashed border-white/20 bg-black/30 p-3 text-xs text-slate-300"
+              >Кликните сюда и нажмите <span className="font-medium">Ctrl+V</span> / перетащите PNG — изображение сразу прикрепится к сцене.</div>
+
+              <div className="mt-3 text-xs text-slate-400">Статус: {assistProgress==='copied' ? 'ожидание буфера…' : assistProgress}</div>
+              <div className="mt-4 flex gap-2 justify-between">
+                <button onClick={async()=>{ const ok = await safeWriteClipboard(assistantAsk); showToast(ok? 'Скопировано' : 'Скопировать не удалось — выделите текст и нажмите Ctrl+C'); }} className="px-3 py-2 rounded-xl border border-white/20 hover:bg-white/10 text-sm">Скопировать запрос</button>
+                <div className="ml-auto flex gap-2">
+                  <button onClick={async()=>{ const ok = await checkClipboardOnceSilent(); if(ok){ setAssistProgress('imported'); showToast('Кадр импортирован'); setAssistModal(false); stopPollingClipboard(); } else { setAssistProgress('нет изображения в буфере'); } }} className="px-3 py-2 rounded-xl border border-white/20 hover:bg-white/10 text-sm">Проверить сейчас</button>
+                  <button onClick={()=>{ setAssistModal(false); stopPollingClipboard(); }} className="px-3 py-2 rounded-xl border border-white/20 hover:bg-white/10 text-sm">Отмена</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manual paste modal when direct clipboard blocked */}
+        {pasteModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm grid place-items-center p-4 z-50">
+            <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5">
+              <div className="text-lg font-semibold">Вставка изображения без доступа к буферу</div>
+              <p className="mt-2 text-sm text-slate-300">Сфокусируйте область ниже и нажмите <b>Ctrl+V</b> (или перетащите файл). Это не требует разрешений.</p>
+              <div
+                ref={pasteBoxRef}
+                onPaste={(e)=>{ handlePasteEvent(e); setPasteModal(false); }}
+                onDrop={(e)=>{ handleDropEvent(e); setPasteModal(false); }}
+                onDragOver={(e)=>e.preventDefault()}
+                tabIndex={0}
+                className="mt-3 w-full h-28 rounded-xl border border-dashed border-white/20 bg-black/30 p-3 text-xs text-slate-300"
+              >Кликните сюда и нажмите Ctrl+V / перетащите файл…</div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button onClick={()=>setPasteModal(false)} className="px-3 py-2 rounded-xl border border-white/20 hover:bg-white/10 text-sm">Закрыть</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
 
-    <script>
-      const YT_API_KEY = "AIzaSyCOj5ETcas0PRKaUO46pKDkokM3Jr_09Vo"; // 🔑 сюда вставь API Key YouTube Data API v3
-      let twitchPlayer = null;
 
-      function showTab(tab) {
-        document.querySelectorAll("#menu button").forEach(b => b.classList.remove("active"));
-        document.querySelectorAll("#content > div").forEach(d => d.style.display="none");
-        document.getElementById(tab+"-tab").style.display="block";
-        document.getElementById("btn-"+tab).classList.add("active");
-      }
-
-      // Twitch
-      function initTwitch(ch) {
-        localStorage.setItem("lastTwitch", ch);
-        document.getElementById("placeholder-twitch").style.display = "none";
-        document.getElementById("twitch-embed").style.display = "block";
-
-        if (twitchPlayer) {
-          twitchPlayer.setChannel(ch);
-        } else {
-          twitchPlayer = new Twitch.Embed("twitch-embed", {
-            channel: ch,
-            width: "100%",
-            height: "100%",
-            parent: ["t.me", "neithgart.github.io"]
-          });
-        }
-      }
-      function loadTwitch() {
-        const ch = document.getElementById("search-twitch").value.trim();
-        if (ch) initTwitch(ch);
-      }
-
-      // YouTube
-      function loadYoutube() {
-        let input = document.getElementById("search-youtube").value.trim();
-        document.getElementById("results").innerHTML = "";
-        document.getElementById("youtube-embed").style.display="none";
-        if (!input) return;
-
-        // проверяем, это ссылка/ID или ключевое слово
-        let id = null;
-        if (input.includes("youtube.com") || input.includes("youtu.be")) {
-          const match = input.match(/(?:v=|be\/)([a-zA-Z0-9_-]{11})/);
-          if (match) id = match[1];
-        } else if (input.length === 11) {
-          id = input;
-        }
-
-        if (id) {
-          playYoutube(id);
-        } else {
-          searchYoutube(input);
-        }
-      }
-
-      function playYoutube(id) {
-        localStorage.setItem("lastYoutube", id);
-        document.getElementById("placeholder-youtube").style.display = "none";
-        document.getElementById("results").innerHTML = "";
-        document.getElementById("youtube-embed").style.display = "block";
-        document.getElementById("youtube-embed").innerHTML =
-          `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${id}" 
-            frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen>
-           </iframe>`;
-      }
-
-      async function searchYoutube(query) {
-        try {
-          const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&q=${encodeURIComponent(query)}&key=${YT_API_KEY}`);
-          const data = await res.json();
-          if (!data.items) return;
-          const resultsDiv = document.getElementById("results");
-          resultsDiv.innerHTML = "";
-          data.items.forEach(item => {
-            const vid = item.id.videoId;
-            const el = document.createElement("div");
-            el.className = "video-item";
-            el.innerHTML = `<img src="${item.snippet.thumbnails.default.url}"/>
-                            <span>${item.snippet.title}</span>`;
-            el.onclick = () => playYoutube(vid);
-            resultsDiv.appendChild(el);
-          });
-        } catch (e) {
-          alert("Ошибка при поиске YouTube");
-          console.error(e);
-        }
-      }
-
-      // Восстановление последнего
-      window.onload = () => {
-        showTab("twitch");
-        const lastTwitch = localStorage.getItem("lastTwitch");
-        if (lastTwitch) initTwitch(lastTwitch);
-        const lastYoutube = localStorage.getItem("lastYoutube");
-        if (lastYoutube) playYoutube(lastYoutube);
-      };
-    </script>
-  </body>
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<InteractiveCinemaMVP />);
+  </script>
+</body>
 </html>
 
